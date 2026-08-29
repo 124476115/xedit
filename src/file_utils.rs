@@ -23,7 +23,10 @@ pub fn detect_file_type(path: &Path) -> FileType {
 }
 
 fn detect_by_content(path: &Path) -> Option<FileType> {
-    let content = fs::read_to_string(path).ok()?;
+    fs::read_to_string(path).ok().and_then(|s| detect_type_from_content(&s))
+}
+
+pub fn detect_type_from_content(content: &str) -> Option<FileType> {
     let content = content.trim();
 
     if content.is_empty() {

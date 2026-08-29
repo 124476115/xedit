@@ -6,7 +6,7 @@ use syntect::parsing::SyntaxSet;
 use syntect::highlighting::{ThemeSet, Style as SyntectStyle};
 use syntect::util::LinesWithEndings;
 
-use super::file_utils::{detect_file_type, read_file, write_file};
+use super::file_utils::{detect_file_type, detect_type_from_content, read_file, write_file};
 
 pub type TabId = usize;
 
@@ -72,44 +72,149 @@ struct Highlighter {
     theme_set: ThemeSet,
     current_syntax: Option<syntect::parsing::SyntaxReference>,
     current_theme: String,
+    cache: Option<(String, Vec<(String, Color32)>)>,
 }
 
 impl Highlighter {
     fn new() -> Self {
         let syntax_set = SyntaxSet::load_defaults_newlines();
         let theme_set = ThemeSet::load_defaults();
+        let current_theme = "base16-ocean.dark".to_string();
         Self {
             syntax_set,
             theme_set,
             current_syntax: None,
-            current_theme: "base16-ocean.dark".to_string(),
+            current_theme,
+            cache: None,
         }
     }
 
     fn set_syntax(&mut self, syntax_name: &str) {
         self.current_syntax = self.syntax_set.find_syntax_by_name(syntax_name).cloned();
+        self.cache = None;
     }
 
-    fn highlight(&mut self, text: &str) -> Vec<(String, Color32)> {
-        let syntax = self.current_syntax.as_ref()
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-        let theme = &self.theme_set.themes[&self.current_theme];
-        let mut highlighter = HighlightLines::new(syntax, theme);
-
-        let mut result = Vec::new();
-        for line in LinesWithEndings::from(text) {
-            let ranges = highlighter.highlight_line(line, &self.syntax_set).unwrap_or_default();
-            for (style, text) in ranges {
-                let color = syntect_style_to_egui(style);
-                result.push((text.to_string(), color));
-            }
+    fn set_theme(&mut self, dark: bool) {
+        let theme_name = if dark {
+            "base16-ocean.dark"
+        } else {
+            "InspiredGitHub"
+        };
+        if self.current_theme != theme_name {
+            self.current_theme = theme_name.to_string();
+            self.cache = None;
         }
-        result
+    }
+
+    fn highlight(&mut self, text: &str) -> &[(String, Color32)] {
+        if self.cache.as_ref().map(|(t, _)| t.as_str()) != Some(text) {
+            let syntax = self.current_syntax.as_ref()
+                .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+            let theme = &self.theme_set.themes[&self.current_theme];
+            let mut highlighter = HighlightLines::new(syntax, theme);
+
+            let mut result = Vec::new();
+            for line in LinesWithEndings::from(text) {
+                let ranges = highlighter.highlight_line(line, &self.syntax_set).unwrap_or_default();
+                for (style, text) in ranges {
+                    let color = syntect_style_to_egui(style);
+                    result.push((text.to_string(), color));
+                }
+            }
+            self.cache = Some((text.to_owned(), result));
+        }
+        match &self.cache {
+            Some((_, result)) => result,
+            None => unreachable!(),
+        }
     }
 }
 
 fn syntect_style_to_egui(style: SyntectStyle) -> Color32 {
     Color32::from_rgb(style.foreground.r, style.foreground.g, style.foreground.b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn color_set(result: &[(String, Color32)]) -> std::collections::HashSet<Color32> {
+        result.iter().map(|(_, c)| *c).collect()
+    }
+
+    #[test]
+    fn json_highlighting_produces_varied_colors() {
+        let mut hl = Highlighter::new();
+        hl.set_syntax("JSON");
+        let result = hl.highlight("{\n  \"name\": \"Rust\",\n  \"version\": 1.2\n}\n");
+        assert!(!result.is_empty());
+        assert!(
+            color_set(&result).len() > 1,
+            "JSON tokens should be rendered with distinguishable colors"
+        );
+    }
+
+    #[test]
+    fn json_highlighting_differs_between_themes() {
+        let mut dark = Highlighter::new();
+        dark.set_theme(true);
+        dark.set_syntax("JSON");
+        let dark_colors = color_set(&dark.highlight("{\"a\": 1}"));
+
+        let mut light = Highlighter::new();
+        light.set_theme(false);
+        light.set_syntax("JSON");
+        let light_colors = color_set(&light.highlight("{\"a\": 1}"));
+
+        assert_ne!(dark_colors, light_colors);
+    }
+
+    #[test]
+    fn highlight_is_reused_while_text_is_unchanged() {
+        let mut hl = Highlighter::new();
+        hl.set_syntax("JSON");
+        let text = "{\"a\":1}";
+        let first = hl.highlight(text).len();
+        let second = hl.highlight(text).len();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn line_col_from_index_basic() {
+        let text = "ab\ncd\nef";
+        assert_eq!(EditorTab::line_col_from_index(text, 0), (1, 1));
+        assert_eq!(EditorTab::line_col_from_index(text, 3), (2, 1));
+        assert_eq!(EditorTab::line_col_from_index(text, 4), (2, 2));
+        assert_eq!(EditorTab::line_col_from_index(text, 7), (3, 2));
+    }
+
+    #[test]
+    fn show_renders_json_with_multiple_colors() {
+        let ctx = egui::Context::default();
+        let output = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut tab = EditorTab::new(0, 14.0);
+                tab.content = "{\n  \"name\": \"Rust\",\n  \"version\": 1.2\n}\n".to_string();
+                tab.file_type = FileType::Json;
+                tab.update_highlighter();
+                tab.show(ui, 14.0);
+            });
+        });
+
+        let mut colors: std::collections::HashSet<Color32> = std::collections::HashSet::new();
+        for clipped in &output.shapes {
+            if let egui::Shape::Text(shape) = &clipped.shape {
+                for section in &shape.galley.job.sections {
+                    colors.insert(section.format.color);
+                }
+            }
+        }
+        assert!(
+            colors.len() > 1,
+            "EditorTab::show should render JSON with multiple colors, got: {:?}",
+            colors
+        );
+    }
 }
 
 impl EditorTab {
@@ -149,6 +254,12 @@ impl EditorTab {
     fn update_highlighter(&mut self) {
         let mut hl = self.highlighter.lock().unwrap();
         hl.set_syntax(self.file_type.syntax_name());
+    }
+
+    pub fn set_highlight_theme(&mut self, dark: bool) {
+        if let Ok(mut hl) = self.highlighter.lock() {
+            hl.set_theme(dark);
+        }
     }
 
     pub fn save_file(&mut self) -> anyhow::Result<()> {
@@ -199,33 +310,47 @@ impl EditorTab {
         (line, col)
     }
 
-    pub fn show(&mut self, ui: &mut Ui, font_size: &mut f32) {
-        self.font_size = *font_size;
+    pub fn show(&mut self, ui: &mut Ui, font_size: f32) {
+        self.font_size = font_size;
 
         let font_id = FontId::monospace(self.font_size);
         let highlighter = self.highlighter.clone();
-        let font_size2 = self.font_size;
+        let layouter_font_size = self.font_size;
         let mut layouter = |ui: &Ui, text: &str, _wrap_width: f32| {
             let mut hl = highlighter.lock().unwrap();
             let highlighted = hl.highlight(text);
             let mut job = egui::text::LayoutJob::default();
             for (txt, color) in highlighted {
-                let format = egui::TextFormat::simple(egui::FontId::monospace(font_size2), color);
-                job.append(&txt, 0.0, format);
+                let format = egui::TextFormat::simple(egui::FontId::monospace(layouter_font_size), *color);
+                job.append(txt, 0.0, format);
             }
             ui.fonts(|f| f.layout_job(job))
         };
 
-        let output = egui::TextEdit::multiline(&mut self.content)
-            .font(font_id)
-            .layouter(&mut layouter)
-            .desired_rows(40)
-            .desired_width(f32::INFINITY)
-            .lock_focus(true)
-            .show(ui);
+        let output = egui::ScrollArea::both()
+            .id_salt(self.id)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::TextEdit::multiline(&mut self.content)
+                    .font(font_id)
+                    .layouter(&mut layouter)
+                    .desired_rows(40)
+                    .desired_width(f32::INFINITY)
+                    .lock_focus(true)
+                    .show(ui)
+            })
+            .inner;
 
         if output.response.changed() {
             self.modified = true;
+            if self.file_path.is_none() {
+                if let Some(detected) = detect_type_from_content(&self.content) {
+                    if detected != self.file_type {
+                        self.file_type = detected;
+                        self.update_highlighter();
+                    }
+                }
+            }
         }
 
         if let Some(cursor_range) = output.cursor_range {
@@ -233,7 +358,5 @@ impl EditorTab {
             self.cursor_line = line;
             self.cursor_col = col;
         }
-
-        *font_size = self.font_size;
     }
 }

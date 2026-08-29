@@ -6,6 +6,10 @@ mod file_utils;
 
 use editor::{EditorTab, TabId};
 
+const DEFAULT_FONT_SIZE: f32 = 14.0;
+const MIN_FONT_SIZE: f32 = 8.0;
+const MAX_FONT_SIZE: f32 = 48.0;
+
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -51,12 +55,28 @@ impl CodeEditorApp {
             tabs: Vec::new(),
             active_tab: None,
             next_tab_id: 0,
-            font_size: 14.0,
+            font_size: DEFAULT_FONT_SIZE,
             theme: Theme::Dark,
         };
         app.apply_theme(&cc.egui_ctx);
         setup_fonts(&cc.egui_ctx);
-        app.new_tab(None);
+        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+
+        let files_opened = if std::env::args().count() > 1 {
+            for arg in std::env::args().skip(1) {
+                let path = PathBuf::from(arg);
+                if path.is_file() {
+                    app.new_tab(Some(path));
+                }
+            }
+            true
+        } else {
+            false
+        };
+
+        if !files_opened {
+            app.new_tab(None);
+        }
         app
     }
 
@@ -84,6 +104,10 @@ impl CodeEditorApp {
     }
 
     fn new_tab(&mut self, file_path: Option<PathBuf>) {
+        if file_path.is_some() {
+            self.tabs
+                .retain(|t| t.file_path.is_some() || !t.content.is_empty() || t.modified);
+        }
         let id = self.next_tab_id;
         self.next_tab_id += 1;
         let mut tab = EditorTab::new(id, self.font_size);
@@ -121,12 +145,52 @@ impl CodeEditorApp {
         let id = self.active_tab?;
         self.tabs.iter().find(|t| t.id == id)
     }
+
+    fn zoom_in(&mut self) {
+        self.font_size = (self.font_size * 1.1).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+    }
+
+    fn zoom_out(&mut self) {
+        self.font_size = (self.font_size / 1.1).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+    }
+
+    fn zoom_reset(&mut self) {
+        self.font_size = DEFAULT_FONT_SIZE;
+    }
+
+    fn handle_zoom(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.modifiers.ctrl) {
+            ctx.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::CTRL, egui::Key::Plus)
+                    || i.consume_key(egui::Modifiers::CTRL, egui::Key::Equals)
+                {
+                    self.zoom_in();
+                }
+                if i.consume_key(egui::Modifiers::CTRL, egui::Key::Minus) {
+                    self.zoom_out();
+                }
+                if i.consume_key(egui::Modifiers::CTRL, egui::Key::Num0) {
+                    self.zoom_reset();
+                }
+            });
+        }
+
+        let zoom = ctx.input(|i| i.zoom_delta());
+        if (zoom - 1.0).abs() > f32::EPSILON {
+            self.font_size = (self.font_size * zoom).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+        }
+    }
 }
 
 impl eframe::App for CodeEditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_theme(ctx);
-        handle_zoom(ctx);
+        self.handle_zoom(ctx);
+
+        let dark = self.theme == Theme::Dark;
+        for tab in self.tabs.iter_mut() {
+            tab.set_highlight_theme(dark);
+        }
 
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -201,22 +265,16 @@ impl eframe::App for CodeEditorApp {
                     }
                     ui.separator();
                     if ui.button("放大  Ctrl++").clicked() {
-                        ctx.set_zoom_factor((ctx.zoom_factor() * 1.1).clamp(0.5, 4.0));
+                        self.zoom_in();
                         ui.close_menu();
                     }
                     if ui.button("缩小  Ctrl+-").clicked() {
-                        ctx.set_zoom_factor((ctx.zoom_factor() / 1.1).clamp(0.5, 4.0));
+                        self.zoom_out();
                         ui.close_menu();
                     }
                     if ui.button("重置缩放  Ctrl+0").clicked() {
-                        ctx.set_zoom_factor(1.0);
+                        self.zoom_reset();
                         ui.close_menu();
-                    }
-                });
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("➕").on_hover_text("新建文件").clicked() {
-                        self.new_tab(None);
                     }
                 });
             });
@@ -271,11 +329,10 @@ impl eframe::App for CodeEditorApp {
                 self.close_tab(id);
             }
 
-            let mut font_size = self.font_size;
+            let font_size = self.font_size;
             if let Some(tab) = self.current_tab_mut() {
-                tab.show(ui, &mut font_size);
+                tab.show(ui, font_size);
             }
-            self.font_size = font_size;
         });
 
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
@@ -294,7 +351,11 @@ impl eframe::App for CodeEditorApp {
                     ui.label("就绪");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!("字体: {:.0}pt  缩放: {:.0}%", self.font_size, ctx.zoom_factor() * 100.0));
+                    ui.label(format!(
+                        "字体: {:.0}pt  缩放: {:.0}%",
+                        self.font_size,
+                        self.font_size / DEFAULT_FONT_SIZE * 100.0
+                    ));
                 });
             });
         });
@@ -354,25 +415,126 @@ fn setup_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-fn handle_zoom(ctx: &egui::Context) {
-    let mut zoom = ctx.zoom_factor();
-    let ctrl = ctx.input(|i| i.modifiers.ctrl);
-    if ctrl {
-        if ctx.input(|i| i.key_pressed(egui::Key::Equals) || i.key_pressed(egui::Key::Plus)) {
-            zoom *= 1.1;
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::Minus)) {
-            zoom /= 1.1;
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::Num0)) {
-            zoom = 1.0;
-        }
-        let scroll = ctx.input(|i| i.raw_scroll_delta.y);
-        if scroll != 0.0 {
-            zoom *= (1.0 + scroll * 0.01).clamp(0.9, 1.1);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_file(prefix: &str, content: &str) -> PathBuf {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("{}_{}_{}", prefix, std::process::id(), nanos));
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        path
+    }
+
+    fn app() -> CodeEditorApp {
+        CodeEditorApp {
+            tabs: Vec::new(),
+            active_tab: None,
+            next_tab_id: 0,
+            font_size: DEFAULT_FONT_SIZE,
+            theme: Theme::Dark,
         }
     }
-    if zoom != ctx.zoom_factor() {
-        ctx.set_zoom_factor(zoom.clamp(0.5, 4.0));
+
+    #[test]
+    fn opening_file_removes_empty_untitled_tab() {
+        let file = temp_file("case2", "{\"a\": 1}");
+        let mut app = app();
+        app.new_tab(None);
+        assert_eq!(app.tabs.len(), 1);
+
+        app.new_tab(Some(file.clone()));
+        assert_eq!(app.tabs.len(), 1, "empty untitled tab should be auto-closed");
+        assert_eq!(app.tabs[0].file_path.as_deref(), Some(file.as_path()));
+        assert_eq!(app.active_tab, Some(app.tabs[0].id));
+
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
+    fn opening_file_keeps_untitled_tab_with_content() {
+        let file = temp_file("case2b", "some text");
+        let mut app = app();
+        app.new_tab(None);
+        app.tabs[0].content = "typed content".to_string();
+
+        app.new_tab(Some(file.clone()));
+        assert_eq!(app.tabs.len(), 2, "non-empty untitled tab should be kept");
+
+        let _ = std::fs::remove_file(file);
+    }
+
+    #[test]
+    fn creating_new_tab_does_not_remove_sibling_empty_tabs() {
+        let mut app = app();
+        app.new_tab(None);
+        app.new_tab(None);
+        assert_eq!(app.tabs.len(), 2);
+    }
+
+    #[test]
+    fn zoom_out_clamps_font_size_at_minimum() {
+        let mut app = app();
+        app.font_size = MIN_FONT_SIZE;
+        app.zoom_out();
+        assert_eq!(app.font_size, MIN_FONT_SIZE);
+    }
+
+    #[test]
+    fn zoom_in_clamps_font_size_at_maximum() {
+        let mut app = app();
+        app.font_size = MAX_FONT_SIZE;
+        app.zoom_in();
+        assert_eq!(app.font_size, MAX_FONT_SIZE);
+    }
+
+    #[test]
+    fn textedit_with_custom_layouter_keeps_section_colors() {
+        let ctx = egui::Context::default();
+        let output = ctx.run(Default::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut content = String::from("{\"a\": 1}");
+                let mut layouter = |ui: &egui::Ui, text: &str, _wrap: f32| {
+                    let mut job = egui::text::LayoutJob::default();
+                    let thirds = [egui::Color32::RED, egui::Color32::GREEN, egui::Color32::BLUE];
+                    let per = (text.len() + 2) / 3;
+                    let mut start = 0;
+                    for (i, color) in thirds.iter().enumerate() {
+                        let end = if i == 2 {
+                            text.len()
+                        } else {
+                            text.char_indices().nth(per).map(|(idx, _)| idx).unwrap_or(text.len())
+                        };
+                        job.append(
+                            &text[start..end],
+                            0.0,
+                            egui::TextFormat::simple(egui::FontId::monospace(14.0), *color),
+                        );
+                        start = end;
+                    }
+                    ui.fonts(|f| f.layout_job(job))
+                };
+                egui::TextEdit::multiline(&mut content)
+                    .layouter(&mut layouter)
+                    .show(ui);
+            });
+        });
+
+        let mut colors: std::collections::HashSet<egui::Color32> = Default::default();
+        for clipped in &output.shapes {
+            if let egui::Shape::Text(shape) = &clipped.shape {
+                for section in &shape.galley.job.sections {
+                    colors.insert(section.format.color);
+                }
+            }
+        }
+        assert!(
+            colors.len() >= 2,
+            "TextEdit should render multiple section colors, got: {:?}",
+            colors
+        );
     }
 }
