@@ -87,7 +87,7 @@ impl Highlighter {
     }
 
     fn set_syntax(&mut self, syntax_name: &str) {
-        self.current_syntax = self.syntax_set.find_syntax_by_name(syntax_name);
+        self.current_syntax = self.syntax_set.find_syntax_by_name(syntax_name).cloned();
     }
 
     fn highlight(&mut self, text: &str) -> Vec<(String, Color32)> {
@@ -227,7 +227,7 @@ impl EditorTab {
         }
 
         if let Some(cursor_range) = output.cursor_range {
-            let (line, col) = line_col_from_index(&self.content, cursor_range.primary.ccursor.index);
+            let (line, col) = Self::line_col_from_index(&self.content, cursor_range.primary.ccursor.index);
             self.cursor_line = line;
             self.cursor_col = col;
         }
