@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -57,7 +58,19 @@ jobs:
             libgtk-3-dev libasound2-dev
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} 2>&1 | tee build.log
+
+      - name: Report build failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "# Build failed on ${{ matrix.os }} (${{ matrix.target }})"
+            echo '```'
+            tail -n 100 build.log
+            echo '```'
+          } | gh issue create --title "Build failed ${{ matrix.os }} $(date +%s)" --body-file -
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

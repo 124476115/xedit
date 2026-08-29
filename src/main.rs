@@ -55,6 +55,7 @@ impl CodeEditorApp {
             theme: Theme::Dark,
         };
         app.apply_theme(&cc.egui_ctx);
+        setup_fonts(&cc.egui_ctx);
         app.new_tab(None);
         app
     }
@@ -125,6 +126,7 @@ impl CodeEditorApp {
 impl eframe::App for CodeEditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_theme(ctx);
+        handle_zoom(ctx);
 
         egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -195,6 +197,19 @@ impl eframe::App for CodeEditorApp {
                     }
                     if ui.selectable_label(self.theme == Theme::Light, "浅色主题").clicked() {
                         self.theme = Theme::Light;
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("放大  Ctrl++").clicked() {
+                        ctx.set_zoom_factor((ctx.zoom_factor() * 1.1).clamp(0.5, 4.0));
+                        ui.close_menu();
+                    }
+                    if ui.button("缩小  Ctrl+-").clicked() {
+                        ctx.set_zoom_factor((ctx.zoom_factor() / 1.1).clamp(0.5, 4.0));
+                        ui.close_menu();
+                    }
+                    if ui.button("重置缩放  Ctrl+0").clicked() {
+                        ctx.set_zoom_factor(1.0);
                         ui.close_menu();
                     }
                 });
@@ -279,7 +294,7 @@ impl eframe::App for CodeEditorApp {
                     ui.label("就绪");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(format!("字体: {:.0}pt", self.font_size));
+                    ui.label(format!("字体: {:.0}pt  缩放: {:.0}%", self.font_size, ctx.zoom_factor() * 100.0));
                 });
             });
         });
@@ -314,5 +329,50 @@ impl eframe::App for CodeEditorApp {
                 }
             }
         });
+    }
+}
+
+fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+
+    fonts.font_data.insert(
+        "cjk".to_owned(),
+        egui::FontData::from_owned(include_bytes!("../assets/DroidSansFallbackFull.ttf").to_vec()),
+    );
+    fonts.font_data.insert(
+        "emoji".to_owned(),
+        egui::FontData::from_owned(include_bytes!("../assets/NotoEmoji-Regular.ttf").to_vec()),
+    );
+
+    for family in [egui::FontFamily::Monospace, egui::FontFamily::Proportional] {
+        if let Some(list) = fonts.families.get_mut(&family) {
+            list.push("cjk".to_owned());
+            list.push("emoji".to_owned());
+        }
+    }
+
+    ctx.set_fonts(fonts);
+}
+
+fn handle_zoom(ctx: &egui::Context) {
+    let mut zoom = ctx.zoom_factor();
+    let ctrl = ctx.input(|i| i.modifiers.ctrl);
+    if ctrl {
+        if ctx.input(|i| i.key_pressed(egui::Key::Equals) || i.key_pressed(egui::Key::Plus)) {
+            zoom *= 1.1;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Minus)) {
+            zoom /= 1.1;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num0)) {
+            zoom = 1.0;
+        }
+        let scroll = ctx.input(|i| i.raw_scroll_delta.y);
+        if scroll != 0.0 {
+            zoom *= (1.0 + scroll * 0.01).clamp(0.9, 1.1);
+        }
+    }
+    if zoom != ctx.zoom_factor() {
+        ctx.set_zoom_factor(zoom.clamp(0.5, 4.0));
     }
 }
