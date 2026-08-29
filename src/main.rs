@@ -20,9 +20,9 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Code Editor",
         options,
-        Box::new(|cc| {
+        Box::new(|cc| -> Result<Box<dyn eframe::App>, Box<dyn std::error::Error + Send + Sync>> {
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Box::new(CodeEditorApp::new(cc))
+            Ok(Box::new(CodeEditorApp::new(cc)))
         }),
     )
 }

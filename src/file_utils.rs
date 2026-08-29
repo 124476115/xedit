@@ -73,16 +73,18 @@ pub fn read_file(path: &Path) -> anyhow::Result<(String, String)> {
 
 fn detect_encoding(path: &Path) -> anyhow::Result<String> {
     let bytes = fs::read(path)?;
-    let encoding = encoding_rs::Encoding::for_bom(&bytes).map(|e| e.name().to_string());
-    if encoding.is_some() {
-        return Ok(encoding.unwrap());
+    if let Some((enc, _)) = encoding_rs::Encoding::for_bom(&bytes) {
+        return Ok(enc.name().to_string());
     }
 
-    let encodings = ["utf-8", "gbk", "gb2312", "latin-1", "cp1252"];
-    for enc in encodings {
-        if encoding_rs::Encoding::for_label(enc.as_bytes()).is_some() {
-            if encoding_rs::decode(&bytes, encoding_rs::Encoding::for_label(enc.as_bytes()).unwrap()).0.is_some() {
-                return Ok(enc.to_string());
+    let candidates = [
+        "utf-8", "gbk", "gb2312", "big5", "euc-jp", "euc-kr", "iso-8859-1", "windows-1252",
+    ];
+    for label in candidates {
+        if let Some(enc) = encoding_rs::Encoding::for_label(label.as_bytes()) {
+            let (cow, _, had_errors) = encoding_rs::decode(&bytes, enc);
+            if !had_errors && !cow.chars().any(|c| c == '\u{FFFD}') {
+                return Ok(label.to_string());
             }
         }
     }

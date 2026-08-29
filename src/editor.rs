@@ -182,6 +182,23 @@ impl EditorTab {
     pub fn redo(&mut self) {
     }
 
+    fn line_col_from_index(text: &str, idx: usize) -> (usize, usize) {
+        let mut line = 1;
+        let mut col = 1;
+        for (i, c) in text.char_indices() {
+            if i >= idx {
+                break;
+            }
+            if c == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        (line, col)
+    }
+
     pub fn show(&mut self, ui: &mut Ui, font_size: &mut f32) {
         self.font_size = *font_size;
 
@@ -210,8 +227,9 @@ impl EditorTab {
         }
 
         if let Some(cursor_range) = output.cursor_range {
-            self.cursor_line = cursor_range.primary.ccursor.row + 1;
-            self.cursor_col = cursor_range.primary.ccursor.column + 1;
+            let (line, col) = line_col_from_index(&self.content, cursor_range.primary.ccursor.index);
+            self.cursor_line = line;
+            self.cursor_col = col;
         }
 
         *font_size = self.font_size;
