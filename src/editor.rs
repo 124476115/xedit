@@ -203,12 +203,14 @@ impl EditorTab {
         self.font_size = *font_size;
 
         let font_id = FontId::monospace(self.font_size);
+        let highlighter = self.highlighter.clone();
+        let font_size2 = self.font_size;
         let mut layouter = |ui: &Ui, text: &str, _wrap_width: f32| {
-            let mut hl = self.highlighter.lock().unwrap();
+            let mut hl = highlighter.lock().unwrap();
             let highlighted = hl.highlight(text);
             let mut job = egui::text::LayoutJob::default();
             for (txt, color) in highlighted {
-                let format = egui::TextFormat::simple(egui::FontId::monospace(self.font_size), color);
+                let format = egui::TextFormat::simple(egui::FontId::monospace(font_size2), color);
                 job.append(&txt, 0.0, format);
             }
             ui.fonts(|f| f.layout_job(job))
