@@ -256,9 +256,11 @@ impl eframe::App for CodeEditorApp {
                 self.close_tab(id);
             }
 
+            let mut font_size = self.font_size;
             if let Some(tab) = self.current_tab_mut() {
-                tab.show(ui, &mut self.font_size);
+                tab.show(ui, &mut font_size);
             }
+            self.font_size = font_size;
         });
 
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
