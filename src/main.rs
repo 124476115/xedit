@@ -1,11 +1,10 @@
 use eframe::egui;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::path::PathBuf;
 
 mod editor;
 mod file_utils;
 
-use editor::{EditorTab, FileType, TabId};
+use editor::{EditorTab, TabId};
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
@@ -267,7 +266,10 @@ impl eframe::App for CodeEditorApp {
                 if let Some(tab) = self.current_tab() {
                     ui.label(format!("{}  |  {}  |  Ln {}, Col {}",
                         tab.file_type.icon(),
-                        tab.file_path.as_deref().unwrap_or("未命名"),
+                        tab.file_path
+                            .as_deref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "未命名".to_string()),
                         tab.cursor_line,
                         tab.cursor_col
                     ));

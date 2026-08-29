@@ -1,4 +1,4 @@
-use egui::{Color32, FontId, RichText, Ui};
+use egui::{Color32, FontId, Ui};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use syntect::easy::HighlightLines;
