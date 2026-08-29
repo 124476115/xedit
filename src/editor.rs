@@ -1,4 +1,4 @@
-use egui::{Color32, FontId, RichText, TextStyle, Ui};
+use egui::{Color32, FontId, RichText, Ui};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use syntect::easy::HighlightLines;
@@ -191,25 +191,25 @@ impl EditorTab {
             let highlighted = hl.highlight(text);
             let mut job = egui::text::LayoutJob::default();
             for (txt, color) in highlighted {
-                job.append(&txt, 0.0, TextStyle::Monospace.into(), egui::FontId::monospace(self.font_size), color);
+                let format = egui::TextFormat::simple(egui::FontId::monospace(self.font_size), color);
+                job.append(&txt, 0.0, format);
             }
             ui.fonts(|f| f.layout_job(job))
         };
 
-        let response = ui.add(
-            egui::TextEdit::multiline(&mut self.content)
-                .font(font_id)
-                .layouter(&mut layouter)
-                .desired_rows(40)
-                .desired_width(f32::INFINITY)
-                .lock_focus(true)
-        );
+        let output = egui::TextEdit::multiline(&mut self.content)
+            .font(font_id)
+            .layouter(&mut layouter)
+            .desired_rows(40)
+            .desired_width(f32::INFINITY)
+            .lock_focus(true)
+            .show(ui);
 
-        if response.changed() {
+        if output.response.changed() {
             self.modified = true;
         }
 
-        if let Some(cursor_range) = response.cursor_range {
+        if let Some(cursor_range) = output.cursor_range {
             self.cursor_line = cursor_range.primary.ccursor.row + 1;
             self.cursor_col = cursor_range.primary.ccursor.column + 1;
         }
