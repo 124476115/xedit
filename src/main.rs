@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 mod editor;
 mod file_utils;
 
+use editor::{EditorTab, FileType, TabId};
+
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
