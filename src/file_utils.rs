@@ -82,7 +82,7 @@ fn detect_encoding(path: &Path) -> anyhow::Result<String> {
     ];
     for label in candidates {
         if let Some(enc) = encoding_rs::Encoding::for_label(label.as_bytes()) {
-            let (cow, _, had_errors) = encoding_rs::decode(&bytes, enc);
+            let (cow, had_errors) = enc.decode(&bytes, false);
             if !had_errors && !cow.chars().any(|c| c == '\u{FFFD}') {
                 return Ok(label.to_string());
             }
