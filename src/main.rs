@@ -227,7 +227,12 @@ impl eframe::App for CodeEditorApp {
                         }
 
                         let response = ui.selectable_label(is_active, label)
-                            .on_hover_text(tab.file_path.as_deref().unwrap_or("未命名"));
+                            .on_hover_text(
+                            tab.file_path
+                                .as_deref()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|| "未命名".to_string()),
+                        );
 
                         if response.clicked() {
                             new_active = Some(tab.id);
