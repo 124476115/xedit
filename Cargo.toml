@@ -1,0 +1,32 @@
+[package]
+name = "code-editor"
+version = "1.0.0"
+edition = "2021"
+description = "Cross-platform code editor for md, xml, json, .env, .properties files"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.29", features = ["default", "persistence"] }
+egui = "0.29"
+egui_extras = "0.29"
+syntect = { version = "5.0", features = ["default"] }
+rfd = "0.12"
+encoding_rs = "0.8"
+walkdir = "2.5"
+notify = { version = "6.1", features = ["crossbeam-channel"] }
+dirs = "5.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+[profile.release]
+lto = true
+opt-level = "z"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release.with-debug]
+inherits = "release"
+debug = true
